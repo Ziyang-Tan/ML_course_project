@@ -54,6 +54,7 @@ predicted.svm.nonlinear <- model.svm.nonlinear %>% predict(test.data)
 mean(predicted.svm.nonlinear == test.data$Outcome)
 
 # random forest
+# reference: https://rpubs.com/phamdinhkhanh/389752
 # default
 model.rf.default <- train(
   Outcome ~., data = train.data, method = "rf",

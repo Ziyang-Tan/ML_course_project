@@ -1,0 +1,138 @@
+---
+title: "ML_course_project"
+author: "Tan"
+date: "7/6/2021"
+output: html_document
+---
+
+```{r setup, message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(warn=-1)
+library(readr)
+library(caret)
+library(dplyr)
+library(randomForest)
+library(knitr)
+set.seed(42)
+```
+
+## load data
+
+The dataset is kindly offered by my classmate Hui Wan. It is a 5-year survival of patients with some disease (I don't know which disease it is but it doesn't matter in this project). The aim of the dataset is to classify the patients according to whether they can survival more than 5 years. The features are age, IPI level and 44 gene mutations. The classes are in the column 'Outcome'. In the column, 'good' means the survival time is larger than 5 years, otherwise is 'poor'.
+
+The dataset is separated into training part and test part with a ratio 9:1. The training part is used in training with cross validation, while the test part is for test purpose only.  
+
+```{r}
+datFile = file.path(getwd(), 'data', 'traindata_5y.tsv')
+testFile = file.path(getwd(), 'data', 'testdata_5y.tsv')
+train.data = read_tsv(datFile) %>%
+  select(-c('Sample', 'OS', 'Death')) %>%
+  tidyr::drop_na()
+test.data = read_tsv(testFile) %>%
+  select(-c('Sample', 'OS', 'Death')) %>%
+  tidyr::drop_na()
+
+kable(head(train.data[,1:7]))
+```
+
+The two classes (good or poor) has similar number, which can avoid possible bias.
+
+```{r}
+kable(list(train.data %>% group_by(Outcome) %>% summarise(n()),
+           test.data %>% group_by(Outcome) %>% summarise(n())))
+```
+
+## SVM
+
+reference for svm part: 
+
+http://www.sthda.com/english/articles/36-classification-methods-essentials/144-svm-model-support-vector-machine-essentials/
+
+Firstly I try linear SVM with 10-fold cross validation. The cost parameter is tuned in training the model and accuracy is used as metric while tuning the parameter.
+
+```{r, message=FALSE}
+model.svm.linear <- train(
+  Outcome ~., data = train.data, method = 'svmLinear',
+  na.action = na.pass,
+  tuneGrid = expand.grid(C = seq(0, 2, length = 20)),
+  trControl = trainControl('cv', number = 10),
+  preProcess = c('center', 'scale'),
+  metric = 'Accuracy'
+)
+```
+
+The plot shows how the parameter is tuned
+
+```{r}
+plot(model.svm.linear)
+```
+
+The next step is to get the test accuracy with test data
+
+```{r}
+# predict with test data set
+predicted.svm.linear <- model.svm.linear %>% predict(test.data)
+# accuracy
+accuracy.svm.linear <- mean(predicted.svm.linear == test.data$Outcome) %>% round(digits = 2)
+print(paste0('test accuracy is ', accuracy.svm.linear,
+             ' (',sum(predicted.svm.linear == test.data$Outcome),'/88)'))
+```
+
+## Random Forest
+
+reference for random forest part: 
+
+https://rpubs.com/phamdinhkhanh/389752
+
+Random forest is then used for classification with 10-fold cross validation. I use the default parameters in the first try.
+
+```{r, message=FALSE}
+model.rf.default <- train(
+  Outcome ~., data = train.data, method = "rf",
+  na.action = na.pass,
+  trControl = trainControl("cv", number = 10),
+  tuneGrid = expand.grid(.mtry=sqrt(ncol(train.data)-1)),
+  metric = 'Accuracy'
+)
+```
+```{r}
+print(model.rf.default)
+predicted.rf.default <- model.rf.default %>% predict(test.data)
+accuracy.rf.default <- mean(predicted.rf.default == test.data$Outcome) %>% round(digits = 2)
+print(paste0('test accuracy is ', accuracy.rf.default,
+             ' (',sum(predicted.rf.default == test.data$Outcome),'/88)'))
+```
+
+Well, not so good. 
+
+Then I try to tune the parameters with grid search. Again I use 10 fold cross validation.
+
+```{r, message=FALSE}
+model.rf.grid <- train(
+  Outcome ~., data = train.data, method = "rf",
+  na.action = na.pass,
+  trControl = trainControl("cv", number = 10, search = 'grid'),
+  tuneGrid = expand.grid(.mtry= (1:15)),
+  metric = 'Accuracy'
+)
+```
+plot the parameter tuning
+```{r}
+plot(model.rf.grid)
+```
+test with test data. 
+```{r}
+predicted.rf.grid <- model.rf.grid %>% predict(test.data)
+accuracy.rf.grid <- mean(predicted.rf.grid == test.data$Outcome) %>% round(digits = 2)
+print(paste0('test accuracy is ', accuracy.rf.grid,
+             ' (',sum(predicted.rf.grid == test.data$Outcome),'/88)'))
+```
+## Conclusion
+
+I use a dataset of patients and try to classify them into good or poor group according to their 5-year-survival. The features are age, IPI level  and 44 gene mutations (1 or 0). I utlize SVM and random forest to do the classification and tune the parameters with the caret package. According to my results above, SVM has better performance of test accuracy `r toString(accuracy.svm.linear)` while random forest has a test accuracy of `r toString(accuracy.rf.grid)` after tuning the parameter. 
+
+Personally speaking, I think both `r toString(accuracy.svm.linear)` and `r toString(accuracy.rf.grid)` are not satisfying at all, either the classification needs more careful preprocess such as feature selection, or the sample size is not enough for our purpose. It is also possible that gene mutations have weak correlation with 5-year-survival.
+
+
+
+
